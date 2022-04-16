@@ -6,16 +6,88 @@ on:
   pull_request:
     branches:
       - master
+
+env:
+  NODE_MODULES_CACHE_VERSION: v0.1
+
 jobs:
-  build-test-lint-typecheck-e2e:
+  install: 
     runs-on: ubuntu-latest
+    concurrency: 
+      group: ${{ github.workflow }}/BuildAndCheck/${{ github.ref }}/${{ github.head_ref }}/${{ github.base_ref }}
+      cancel-in-progress: true
+
     steps:
-      - uses: actions/checkout@v2 # If you're using actions/checkout@v2 you must set persist-credentials to false in most cases for the deployment to work correctly.
-      - uses: actions/setup-node@v2-beta
+      - uses: actions/checkout@v2 
+      - uses: actions/setup-node@v2
         with:
           node-version: '16.8'
-      - run: yarn install
-      - run: yarn build
+
+      - name: Store node-modules Cache
+        uses: actions/cache@v2
+        id: node-modules-cache
+        with:
+          path: 'node_modules'
+          key: ${{ runner.os }}-node-modules-${{ env.NODE_MODULES_CACHE_VERSION }}-${{ hashFiles('**/yarn.lock') }}
+
+      - name: Install node-modules
+        run: |
+          yarn install
+
+  build:
+    needs: [install]
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: ${{ github.workflow }}/BuildAndCheck/${{ github.ref }}/${{ github.head_ref }}/${{ github.base_ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v2 
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16.8'
+
+      - name: Restore node-modules Cache
+        uses: actions/cache@v2
+        with:
+          path: 'node_modules'
+          key: ${{ runner.os }}-node-modules-${{ env.NODE_MODULES_CACHE_VERSION }}-${{ hashFiles('**/yarn.lock') }}
+
+      - name: Store build Cache
+        uses: actions/cache@v2
+        id: build-cache
+        with:
+          path: build
+          key: ${{ runner.os }}-build-${{ env.NODE_MODULES_CACHE_VERSION }}-${{ github.sha }}
+
+      - name: Build
+        run: yarn build
+
+  test-lint-typecheck-e2e:
+    needs: [build]
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: ${{ github.workflow }}/BuildAndCheck/${{ github.ref }}/${{ github.head_ref }}/${{ github.base_ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v2 
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16.8'
+
+      - name: Restore node-modules Cache
+        uses: actions/cache@v2
+        with:
+          path: 'node_modules'
+          key: ${{ runner.os }}-node-modules-${{ env.NODE_MODULES_CACHE_VERSION }}-${{ hashFiles('**/yarn.lock') }}
+
+      - name: Restore build Cache
+        uses: actions/cache@v2
+        with:
+          path: build
+          key: ${{ runner.os }}-build-${{ env.NODE_MODULES_CACHE_VERSION }}-${{ github.sha }}
+
       - run: yarn test
       - run: yarn lint
       - run: yarn typecheck
@@ -26,5 +98,3 @@ jobs:
           # the entire command will automatically be prefixed with "npm"
           # and we need the second "npm" to execute "cypress run ..." command line
           command-prefix: 'percy exec -- npx'
-        env:
-          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
